@@ -1,0 +1,39 @@
+name: Publish Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the FFmpeg encoder
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-download
+          $encoder = Get-ChildItem ffmpeg-download -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          if ($null -eq $encoder) { throw 'FFmpeg encoder was not found in the downloaded archive.' }
+          Copy-Item $encoder.FullName 'src\GapVideoRecorder\assets\ffmpeg\ffmpeg.exe'
+
+      - name: Build portable app
+        shell: cmd
+        run: build-native.bat
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: Compress-Archive -LiteralPath 'dist\GAP Video Recorder' -DestinationPath 'dist\GAP-Video-Recorder-portable.zip' -CompressionLevel Optimal
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME 'dist\GAP-Video-Recorder-portable.zip#GAP Video Recorder portable Windows build' --title "GAP Video Recorder $env:GITHUB_REF_NAME" --generate-notes
