@@ -19,6 +19,9 @@ namespace GapVideoRecorder;
 public partial class MainWindow : System.Windows.Window
 {
     private const int FrameRate = 30;
+    private const int OutputWidth = 1920;
+    private const int OutputHeight = 1080;
+    private const int RecordingCrf = 20;
     private const double MinimumTileSize = 80;
     private const double MinimumVisibleTileArea = 40;
     private const double MaximumTileSize = 7680;
@@ -32,8 +35,6 @@ public partial class MainWindow : System.Windows.Window
     private readonly System.Windows.Threading.DispatcherTimer elapsedTimer;
     private readonly Stopwatch recordingStopwatch = new();
     private FfmpegEncoder? encoder;
-    private int outputWidth = 1920;
-    private int outputHeight = 1080;
     private bool recording;
     private bool stopping;
     private long framesWritten;
@@ -41,10 +42,6 @@ public partial class MainWindow : System.Windows.Window
     private CameraTile? movingTile;
     private CameraTile? selectedTile;
     private ResizeEdges resizeEdges;
-    private readonly (string Name, int Crf)[] qualities =
-    {
-        ("Smallest", 32), ("Low", 28), ("Balanced", 24), ("High", 20), ("Maximum", 17)
-    };
 
     public MainWindow()
     {
@@ -64,11 +61,20 @@ public partial class MainWindow : System.Windows.Window
         for (var index = 0; index < 10; index++)
         {
             using var probe = new VideoCapture(index, VideoCaptureAPIs.DSHOW);
-            if (probe.IsOpened())
+            if (probe.IsOpened() && cameras.All(camera => camera.Index != index))
                 cameras.Add(new CameraChoice(index, $"Camera {index + 1}"));
         }
         if (cameras.Count == 0)
             StatusText.Text = "No cameras found. Connect a camera and allow desktop apps in Windows camera privacy settings.";
+    }
+
+    private void RefreshCameras_Click(object sender, RoutedEventArgs e)
+    {
+        var countBefore = cameras.Count;
+        RefreshCameras();
+        StatusText.Text = cameras.Count == countBefore
+            ? "No new cameras found."
+            : $"Found {cameras.Count - countBefore} new camera(s).";
     }
 
     private void CameraList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -129,6 +135,14 @@ public partial class MainWindow : System.Windows.Window
         tile.Frame.MouseLeftButtonDown += Tile_MouseLeftButtonDown;
         tile.Frame.MouseMove += Tile_MouseMove;
         tile.Frame.MouseLeftButtonUp += Tile_MouseLeftButtonUp;
+        tile.SetRotated180(savedLayout?.Rotated180 ?? false);
+        var rotationItem = new MenuItem { Header = "Rotate 180°", IsCheckable = true, IsChecked = tile.Rotated180 };
+        rotationItem.Click += (_, _) =>
+        {
+            tile.SetRotated180(rotationItem.IsChecked);
+            SaveLayout();
+        };
+        tile.Frame.ContextMenu = new ContextMenu { Items = { rotationItem } };
         OutputCanvas.Children.Add(tile.Frame);
         tiles.Add(tile);
         SelectTile(tile);
@@ -177,6 +191,7 @@ public partial class MainWindow : System.Windows.Window
                     Top = tile.Top,
                     Width = tile.Width,
                     Height = tile.Height,
+                    Rotated180 = tile.Rotated180,
                 }).ToList(),
             };
             var temporaryPath = LayoutPath + ".new";
@@ -313,21 +328,6 @@ public partial class MainWindow : System.Windows.Window
         return true;
     }
 
-    private void ResolutionBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (ResolutionBox.SelectedItem is not ComboBoxItem item || item.Tag is not string dimensions)
-            return;
-        var values = dimensions.Split(',').Select(int.Parse).ToArray();
-        outputWidth = values[0];
-        outputHeight = values[1];
-    }
-
-    private void QualitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (QualityText is not null)
-            QualityText.Text = qualities[(int)Math.Round(QualitySlider.Value) - 1].Name;
-    }
-
     private void RecordButton_Click(object sender, RoutedEventArgs e)
     {
         if (tiles.Count == 0)
@@ -340,8 +340,7 @@ public partial class MainWindow : System.Windows.Window
         var path = System.IO.Path.Combine(folder, $"GAP_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4");
         try
         {
-            var crf = qualities[(int)Math.Round(QualitySlider.Value) - 1].Crf;
-            encoder = new FfmpegEncoder(path, outputWidth, outputHeight, FrameRate, crf);
+            encoder = new FfmpegEncoder(path, OutputWidth, OutputHeight, FrameRate, RecordingCrf);
         }
         catch (Exception exception)
         {
@@ -353,15 +352,13 @@ public partial class MainWindow : System.Windows.Window
         recording = true;
         SelectTile(null, rememberSelection: false);
         CameraList.IsEnabled = false;
-        ResolutionBox.IsEnabled = false;
-        QualitySlider.IsEnabled = false;
         RecordButton.IsEnabled = false;
         StopButton.IsEnabled = true;
         framesWritten = 0;
         recordingStopwatch.Restart();
         elapsedTimer.Start();
         recordTimer.Start();
-        StatusText.Text = $"Recording H.264 ({QualityText.Text}) to {path}";
+        StatusText.Text = $"Recording H.264 (1080p, high quality) to {path}";
     }
 
     private void StopButton_Click(object sender, RoutedEventArgs e) => StopRecording();
@@ -391,8 +388,6 @@ public partial class MainWindow : System.Windows.Window
         encoder = null;
         recording = false;
         CameraList.IsEnabled = true;
-        ResolutionBox.IsEnabled = true;
-        QualitySlider.IsEnabled = true;
         RecordButton.IsEnabled = true;
         StopButton.IsEnabled = false;
         if (selectedTile is not null && tiles.Contains(selectedTile))
@@ -408,17 +403,24 @@ public partial class MainWindow : System.Windows.Window
         var targetFrameCount = requestedFrameCount ?? (long)Math.Floor(recordingStopwatch.Elapsed.TotalSeconds * FrameRate);
         if (targetFrameCount <= framesWritten)
             return;
-        using var output = new Mat(outputHeight, outputWidth, MatType.CV_8UC3, Scalar.Black);
+        using var output = new Mat(OutputHeight, OutputWidth, MatType.CV_8UC3, Scalar.Black);
         foreach (var tile in tiles)
         {
             using var source = tile.Feed.CopyLatestFrame();
             if (source is null || source.Empty())
                 continue;
-            var fullRect = tile.FullOutputRect(outputWidth, outputHeight);
-            var rect = IntersectWithCanvas(fullRect, outputWidth, outputHeight);
+            using var rotated = new Mat();
+            var sourceForOutput = source;
+            if (tile.Rotated180)
+            {
+                Cv2.Rotate(source, rotated, RotateFlags.Rotate180);
+                sourceForOutput = rotated;
+            }
+            var fullRect = tile.FullOutputRect(OutputWidth, OutputHeight);
+            var rect = IntersectWithCanvas(fullRect, OutputWidth, OutputHeight);
             if (rect is null)
                 continue;
-            using var sourceCrop = CropToAspect(source, fullRect.Width / (double)fullRect.Height);
+            using var sourceCrop = CropToAspect(sourceForOutput, fullRect.Width / (double)fullRect.Height);
             using var resized = new Mat();
             Cv2.Resize(sourceCrop, resized, new Size(fullRect.Width, fullRect.Height), 0, 0, InterpolationFlags.Area);
             var sourceRect = new CvRect(rect.Value.X - fullRect.X, rect.Value.Y - fullRect.Y, rect.Value.Width, rect.Value.Height);
@@ -580,6 +582,7 @@ public sealed class SavedCameraLayout
     public double Top { get; set; }
     public double Width { get; set; }
     public double Height { get; set; }
+    public bool Rotated180 { get; set; }
 }
 
 public sealed class CameraFeed
@@ -662,11 +665,12 @@ public sealed class CameraTile
     public double Width { get; set; }
     public double Height { get; set; }
     public bool IsSelected { get; private set; }
+    public bool Rotated180 { get; private set; }
 
     public CameraTile(CameraFeed feed, double left, double top, double width, double height)
     {
         Feed = feed; Left = left; Top = top; Width = width; Height = height;
-        Preview = new Image { Stretch = Stretch.UniformToFill, SnapsToDevicePixels = true };
+        Preview = new Image { Stretch = Stretch.UniformToFill, SnapsToDevicePixels = true, RenderTransformOrigin = new Point(0.5, 0.5) };
         var grid = new Grid();
         grid.Children.Add(Preview);
         grid.Children.Add(CreateResizeHandle(HorizontalAlignment.Left, VerticalAlignment.Top));
@@ -682,6 +686,12 @@ public sealed class CameraTile
         IsSelected = selected;
         Frame.BorderBrush = selected ? Brushes.DeepSkyBlue : Brushes.SlateGray;
         Frame.BorderThickness = new Thickness(selected ? 4 : 2);
+    }
+
+    public void SetRotated180(bool rotated)
+    {
+        Rotated180 = rotated;
+        Preview.RenderTransform = rotated ? new RotateTransform(180) : Transform.Identity;
     }
 
     public void ApplyLayout()
