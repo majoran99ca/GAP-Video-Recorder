@@ -10,12 +10,21 @@
       <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Grid.Column="0">
+    <Menu Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,10"
+          Background="#22262C" Foreground="White">
+      <MenuItem Header="_File">
+        <MenuItem Header="_Close" Click="CloseMenuItem_Click"/>
+      </MenuItem>
+      <MenuItem Header="_About" Click="AboutMenuItem_Click"/>
+    </Menu>
+
+    <StackPanel Grid.Row="1" Grid.Column="0">
       <Grid Margin="0,0,0,8">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <TextBlock Text="CAMERAS" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -28,7 +37,7 @@
                  Text="Drag a camera onto the canvas. Drag a camera tile to move it. Drag any blue corner handle to resize it. Right-click a tile to turn it upside down. A tile may extend outside the canvas to record only part of it. Select a tile and press Delete to remove it."/>
     </StackPanel>
 
-    <Border Grid.Row="0" Grid.Column="2" Background="#090A0C" BorderBrush="#30353D" BorderThickness="1" CornerRadius="4"
+    <Border Grid.Row="1" Grid.Column="2" Background="#090A0C" BorderBrush="#30353D" BorderThickness="1" CornerRadius="4"
             HorizontalAlignment="Center" VerticalAlignment="Center">
       <Viewbox Stretch="Uniform">
         <Canvas x:Name="OutputCanvas" Width="1920" Height="1080" Background="Black" ClipToBounds="True" AllowDrop="True"
@@ -36,7 +45,7 @@
       </Viewbox>
     </Border>
 
-    <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,14,0,8">
+    <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,14,0,8">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <TextBlock Text="1080p · 30 fps · High quality" Foreground="#C8D0D8" VerticalAlignment="Center"/>
       <TextBlock x:Name="TimerText" Grid.Column="1" Text="00:00:00" FontFamily="Consolas" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
@@ -45,7 +54,7 @@
         <Button x:Name="StopButton" Style="{StaticResource ActionButton}" Content="■  Stop" IsEnabled="False" Background="#3E454D" Click="StopButton_Click"/>
       </StackPanel>
     </Grid>
-    <TextBlock x:Name="StatusText" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Foreground="#C8D0D8"
+    <TextBlock x:Name="StatusText" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Foreground="#C8D0D8"
                Text="Ready · H.264 MP4 · no audio · saves to Videos"/>
   </Grid>
 </Window>

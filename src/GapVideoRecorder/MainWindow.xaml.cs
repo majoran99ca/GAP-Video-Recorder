@@ -18,6 +18,8 @@ namespace GapVideoRecorder;
 
 public partial class MainWindow : System.Windows.Window
 {
+    private const string AppVersion = "1.0.4";
+    private const string AboutText = "GAP Video recorder is a free purpose built easy to use software to simplify video recordings with easy to use controls and virtually no settings to change.\nVideo codec, resolution and bitrates are pre-set for optimum balance of quality and file size.\n\nGAP Video recorder is free to use, copy and distribute under GPL-3.0 license.\n\nThis software is still being tested and evaluated and may not be a final version.\nIf you have any questions or suggestions, please contact me at majoran99ca@gmail.com";
     private const int FrameRate = 30;
     private const int OutputWidth = 1920;
     private const int OutputHeight = 1080;
@@ -118,7 +120,7 @@ public partial class MainWindow : System.Windows.Window
             {
                 var tile = tiles.FirstOrDefault(item => item.Feed == feed);
                 if (tile is not null)
-                    tile.Preview.Source = image;
+                    tile.SetPreview(image);
             }, message => StatusText.Text = message);
             feeds.Add(camera.Index, feed);
             feed.Start();
@@ -147,6 +149,58 @@ public partial class MainWindow : System.Windows.Window
         tiles.Add(tile);
         SelectTile(tile);
         OutputCanvas.Focus();
+    }
+
+    private void CloseMenuItem_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new System.Windows.Window
+        {
+            Owner = this,
+            Title = "About GAP Video Recorder",
+            Width = 470,
+            Height = 350,
+            MinWidth = 470,
+            MinHeight = 350,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = new SolidColorBrush(Color.FromRgb(23, 26, 30)),
+            Foreground = Brushes.White,
+            Icon = new BitmapImage(new Uri("pack://application:,,,/assets/app-icon.ico")),
+        };
+        var content = new StackPanel { Margin = new Thickness(24) };
+        content.Children.Add(new TextBlock
+        {
+            Text = "GAP Video Recorder",
+            FontSize = 22,
+            FontWeight = FontWeights.SemiBold,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = $"Version {AppVersion}",
+            Foreground = new SolidColorBrush(Color.FromRgb(190, 199, 208)),
+            Margin = new Thickness(0, 4, 0, 18),
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = AboutText,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(220, 225, 230)),
+        });
+        var ok = new Button
+        {
+            Content = "OK",
+            Width = 80,
+            IsDefault = true,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 20, 0, 0),
+            Padding = new Thickness(12, 5, 12, 5),
+        };
+        ok.Click += (_, _) => dialog.Close();
+        content.Children.Add(ok);
+        dialog.Content = content;
+        dialog.ShowDialog();
     }
 
     private void RestoreLayout()
@@ -666,12 +720,13 @@ public sealed class CameraTile
     public double Height { get; set; }
     public bool IsSelected { get; private set; }
     public bool Rotated180 { get; private set; }
+    private BitmapSource? latestPreview;
 
     public CameraTile(CameraFeed feed, double left, double top, double width, double height)
     {
         Feed = feed; Left = left; Top = top; Width = width; Height = height;
-        Preview = new Image { Stretch = Stretch.UniformToFill, SnapsToDevicePixels = true, RenderTransformOrigin = new Point(0.5, 0.5) };
-        var grid = new Grid();
+        Preview = new Image { Stretch = Stretch.UniformToFill, SnapsToDevicePixels = true };
+        var grid = new Grid { ClipToBounds = true, UseLayoutRounding = true };
         grid.Children.Add(Preview);
         grid.Children.Add(CreateResizeHandle(HorizontalAlignment.Left, VerticalAlignment.Top));
         grid.Children.Add(CreateResizeHandle(HorizontalAlignment.Right, VerticalAlignment.Top));
@@ -691,7 +746,26 @@ public sealed class CameraTile
     public void SetRotated180(bool rotated)
     {
         Rotated180 = rotated;
-        Preview.RenderTransform = rotated ? new RotateTransform(180) : Transform.Identity;
+        if (latestPreview is not null)
+            RenderPreview(latestPreview);
+    }
+
+    public void SetPreview(BitmapSource image)
+    {
+        latestPreview = image;
+        RenderPreview(image);
+    }
+
+    private void RenderPreview(BitmapSource image)
+    {
+        if (!Rotated180)
+        {
+            Preview.Source = image;
+            return;
+        }
+        var transformed = new TransformedBitmap(image, new RotateTransform(180));
+        transformed.Freeze();
+        Preview.Source = transformed;
     }
 
     public void ApplyLayout()
